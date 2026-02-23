@@ -24,4 +24,5 @@ This project is designed to be hosted on GitHub Pages.
 
 Your app will be live at:
 
-https://yourusername.github.io/soccer-age-calculator/
+https://oregonsc.github.io/Age-Group-Calculator/
+
