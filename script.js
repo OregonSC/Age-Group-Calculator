@@ -1,29 +1,35 @@
-// Override these if you want to manually control year range
-// const YOUNGEST_YEAR = 2023;
-// const OLDEST_YEAR = 2007;
+function generateBirthdateGroups() {
+    const currentYear = new Date().getFullYear();
+    const groups = [];
 
-const BIRTHDATE_GROUPS = [
-    { group: "U4", start: "2022-08-01", end: "2023-07-31" },
-    { group: "U5", start: "2021-08-01", end: "2022-07-31" },
-    { group: "U6", start: "2020-08-01", end: "2021-07-31" },
-    { group: "U7", start: "2019-08-01", end: "2020-07-31" },
-    { group: "U8", start: "2018-08-01", end: "2019-07-31" },
-    { group: "U9", start: "2017-08-01", end: "2018-07-31" },
-    { group: "U10", start: "2016-08-01", end: "2017-07-31" },
-    { group: "U11", start: "2015-08-01", end: "2016-07-31" },
-    { group: "U12", start: "2014-08-01", end: "2015-07-31" },
-    { group: "U13", start: "2013-08-01", end: "2014-07-31" },
-    { group: "U14", start: "2012-08-01", end: "2013-07-31" },
-    { group: "U15", start: "2011-08-01", end: "2012-07-31" },
-    { group: "U16", start: "2010-08-01", end: "2011-07-31" },
-    { group: "U17", start: "2009-08-01", end: "2010-07-31" },
-    { group: "U19", start: "2007-08-01", end: "2009-07-31" }
-];
+    // Build U4 through U19 from the current year using an Aug 1 to Jul 31 seasonal cutoff.
+    for (let age = 4; age <= 19; age++) {
+        const startYear = currentYear - age;
+        const endYear = currentYear - (age - 1);
+
+        groups.push({
+            group: `U${age}`,
+            start: `${startYear}-08-01`,
+            end: `${endYear}-07-31`
+        });
+    }
+
+    return groups;
+}
+
+const BIRTHDATE_GROUPS = generateBirthdateGroups();
+
+function parseLocalDate(dateString) {
+    const [year, month, day] = dateString.split("-").map(Number);
+    return new Date(year, month - 1, day);
+}
 
 const GRADE_TO_U = {
-    "Pre-K": "U5",
-    "4K": "U6",
+    "Pre-K": ["U5", "U6"],
+    "4K": ["U5", "U6"],
+    "Kindergarten": "U7",
     "K": "U7",
+    "5K": "U7",
     "1": "U8",
     "2": "U9",
     "3": "U10",
@@ -39,11 +45,11 @@ const GRADE_TO_U = {
 };
 
 function getUFromBirthday(birthday) {
-    const birthDate = new Date(birthday);
+    const birthDate = parseLocalDate(birthday);
 
     for (let range of BIRTHDATE_GROUPS) {
-        const start = new Date(range.start);
-        const end = new Date(range.end);
+        const start = parseLocalDate(range.start);
+        const end = parseLocalDate(range.end);
 
         if (birthDate >= start && birthDate <= end) {
             return range.group;
@@ -52,6 +58,8 @@ function getUFromBirthday(birthday) {
 
     return null;
 }
+
+const ALL_GROUPS = BIRTHDATE_GROUPS.map(range => range.group);
 
 // Initialize dropdowns on page load
 window.addEventListener('DOMContentLoaded', function() {
@@ -71,8 +79,8 @@ window.addEventListener('DOMContentLoaded', function() {
 
     // Find the range from BIRTHDATE_GROUPS
     BIRTHDATE_GROUPS.forEach(group => {
-        const startYear = new Date(group.start).getFullYear();
-        const endYear = new Date(group.end).getFullYear();
+        const startYear = parseLocalDate(group.start).getFullYear();
+        const endYear = parseLocalDate(group.end).getFullYear();
         oldestYear = Math.min(oldestYear, startYear, endYear);
         youngestYear = Math.max(youngestYear, startYear, endYear);
     });
@@ -109,6 +117,7 @@ function calculate() {
 
     const birthU = getUFromBirthday(birthday);
     const gradeU = GRADE_TO_U[grade];
+    const gradeGroups = Array.isArray(gradeU) ? gradeU : [gradeU];
 
     if (!birthU) {
         let message = "⚠ Please contact the club as a waiver would need to be requested. Note: Waivers are for one season only, and might not apply for tournaments, which have authority to determine their own eligibility rules. Waivers are not frequently granted for teams playing in WYSA State Leagues, the State Cup and Presidents Cup.";
@@ -116,26 +125,59 @@ function calculate() {
         return;
     }
 
+    if (!gradeU) {
+        resultDiv.innerHTML = "Please select a valid grade.";
+        return;
+    }
+
     // Check if birthday is in August (month = 8)
-    const birthDate = new Date(birthday);
+    const birthDate = parseLocalDate(birthday);
     const isAugustBirthday = birthDate.getMonth() === 7; // getMonth() returns 0-11, so 7 = August
 
     // Get the indices of the age groups
-    const allGroups = ["U4", "U5", "U6", "U7", "U8", "U9", "U10", "U11", "U12", "U13", "U14", "U15", "U16", "U17", "U19"];
-    const birthIndex = allGroups.indexOf(birthU);
+    const birthIndex = ALL_GROUPS.indexOf(birthU);
 
-    let message = `<strong>Official Age Group (by birthdate):</strong> ${birthU}<br>`;
-    message += `<strong>Expected Age Group (by grade):</strong> ${gradeU}<br><br>`;
+    let expectedGroupsDisplay = gradeGroups.join(" or ");
+    let outcomeMessage = "";
 
     if (isAugustBirthday) {
-        // August birthdays (cutoff month) can play in their birthdate group OR one level up
-        const upperGroup = allGroups[birthIndex + 1] || birthU;
-        message += `✅ August birthday (cutoff month) - eligible to play in <strong>${birthU} or ${upperGroup}</strong>.`;
-    } else if (birthU === gradeU) {
-        message += "✅ Grade and birthdate match.";
+        const gradeIndices = gradeGroups
+            .map(group => ALL_GROUPS.indexOf(group))
+            .filter(index => index !== -1);
+        const differences = gradeIndices.map(index => index - birthIndex);
+        const hasExactMatch = differences.includes(0);
+        const hasStartedEarlyMatch = differences.includes(1);
+        const hasHeldBackOneMatch = differences.includes(-1);
+        const minAbsDifference = differences.length
+            ? Math.min(...differences.map(diff => Math.abs(diff)))
+            : Number.POSITIVE_INFINITY;
+
+        if (hasExactMatch) {
+            expectedGroupsDisplay = birthU;
+            outcomeMessage = `✅ August birthday (cutoff month) - eligible to play in <strong>${birthU}</strong>.`;
+        } else if (hasStartedEarlyMatch) {
+            const gradePlusOneIndex = gradeIndices.find(index => index - birthIndex === 1);
+            const gradePlusOneGroup = ALL_GROUPS[gradePlusOneIndex];
+            expectedGroupsDisplay = `${birthU} or ${gradePlusOneGroup}`;
+            outcomeMessage = `✅ August birthday (cutoff month) - eligible to play in <strong>${birthU} or ${gradePlusOneGroup}</strong>.`;
+        } else if (hasHeldBackOneMatch) {
+            expectedGroupsDisplay = birthU;
+            outcomeMessage = `✅ August birthday (cutoff month) - eligible to play in <strong>${birthU}</strong>.`;
+        } else if (minAbsDifference >= 2) {
+            outcomeMessage = "⚠ Please contact the club as a waiver would need to be requested. Note: Waivers are for one season only, and might not apply for tournaments, which have authority to determine their own eligibility rules. Waivers are not frequently granted for teams playing in WYSA State Leagues, the State Cup and Presidents Cup.";
+        } else {
+            outcomeMessage = "⚠ Please contact the club as a waiver would need to be requested. Note: Waivers are for one season only, and might not apply for tournaments, which have authority to determine their own eligibility rules. Waivers are not frequently granted for teams playing in WYSA State Leagues, the State Cup and Presidents Cup.";
+        }
+    } else if (gradeGroups.includes(birthU)) {
+        expectedGroupsDisplay = birthU;
+        outcomeMessage = "✅ Grade and birthdate match.";
     } else {
-        message += "⚠ Please contact the club as a waiver would need to be requested. Note: Waivers are for one season only, and might not apply for tournaments, which have authority to determine their own eligibility rules. Waivers are not frequently granted for teams playing in WYSA State Leagues, the State Cup and Presidents Cup.";
+        outcomeMessage = "⚠ Please contact the club as a waiver would need to be requested. Note: Waivers are for one season only, and might not apply for tournaments, which have authority to determine their own eligibility rules. Waivers are not frequently granted for teams playing in WYSA State Leagues, the State Cup and Presidents Cup.";
     }
+
+    let message = `<strong>Official Age Group (by birthdate):</strong> ${birthU}<br>`;
+    message += `<strong>Expected Age Group (by grade):</strong> ${expectedGroupsDisplay}<br><br>`;
+    message += outcomeMessage;
 
     resultDiv.innerHTML = message;
 }
